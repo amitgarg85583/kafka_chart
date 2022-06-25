@@ -1,0 +1,80 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "common.names.fullname" . }}-connect
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    app.kubernetes.io/component: connector
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {{- include "common.labels.matchLabels" . | nindent 6 }}
+      app.kubernetes.io/component: connector
+  template:
+    metadata:
+      labels: {{- include "common.labels.standard" . | nindent 8 }}
+        app.kubernetes.io/component: connector
+    spec:
+      containers:
+        - name: connect
+          image: amitgarg85583/influxdb-connect:1.2.3
+          imagePullPolicy: Always
+          # command: ["sleep", "5m"]
+          ports:
+            - name: connector
+              containerPort: 8083
+          volumeMounts:
+            - name: configuration
+              mountPath: /bitnami/kafka/config
+      volumes:
+        - name: configuration
+          configMap:
+            name: {{ include "common.names.fullname" . }}-connect
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "common.names.fullname" . }}-connect
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    app.kubernetes.io/component: connector
+data:
+  connect-standalone.properties: |-
+    plugin.path=/usr/local/share/java,/usr/local/share/kafka/plugins,/opt/connectors,/opt/bitnami/kafka/plugins
+    bootstrap.servers = {{ include "common.names.fullname" . }}-0.{{ include "common.names.fullname" . }}-headless.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}:{{ .Values.service.ports.client }}
+    key.converter=org.apache.kafka.connect.json.JsonConverter
+    value.converter=org.apache.kafka.connect.json.JsonConverter
+    key.converter.schemas.enable=true
+    value.converter.schemas.enable=true
+    offset.storage.file.filename=/tmp/connect.offsets
+    offset.flush.interval.ms=10000
+    ...
+  influxdb.properties: |-
+    name=InfluxDBSourceConnector
+    connector.class=io.confluent.influxdb.source.InfluxdbSourceConnector
+    tasks.max=1
+    topic.prefix=influx_
+    influxdb.db=testdb
+    mode=timestamp
+    value.converter=org.apache.kafka.connect.json.JsonConverter
+    value.converter.schemas.enable=false
+    influxdb.url=http://influxdb.default.svc.cluster.local:8086
+    influxdb.username="root"
+    influxdb.password="root"
+    query=SELECT "host","region","value" FROM cpu
+    # influxdb.org.id="primary"
+    # influxdb.token="X5y9h3IUc3s8fPjw0JnvOikcq93B72ku5Axxz0mY-csPZsNziQPU-16oZHN7HuRM3zs76ZRcrZ7-RmcBlYfRIQ=="
+    # influxdb.bucket="primary"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "common.names.fullname" . }}-connect
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    app.kubernetes.io/component: connector
+spec:
+  ports:
+    - protocol: TCP
+      port: 8083
+      targetPort: connector
+  selector: {{- include "common.labels.matchLabels" . | nindent 4 }}
+    app.kubernetes.io/component: connector
